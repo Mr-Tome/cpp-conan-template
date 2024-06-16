@@ -4,7 +4,7 @@ cmake_ver=3.29.3
 op_sys=windows-x86_64
 
 #let's check the final destination before we actually do anything
-destination="$HOME/.configuration-dependencies/differential-equations"
+destination="$HOME/.configuration-dependencies/cpp-template"
 destination_dep="$destination/cmake-$cmake_ver-$op_sys"
 
 CMAKE="$destination_dep"/bin/cmake.exe

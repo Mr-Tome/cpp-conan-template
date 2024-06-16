@@ -15,12 +15,6 @@ end
 
 configure-->|"downloads"|CMake[CMake]
 configure-->|"downloads"|GCC[GCC]
-
-
-
-
-
-
 ```
 
 
@@ -50,7 +44,7 @@ After you have configured your project, you'll need to compile the necessary cpp
 
 	./make
 	
-### Compiling and Building the project
+### Running the code!
 
 After you have compiled and built the project, you can run the project running this command:
 
