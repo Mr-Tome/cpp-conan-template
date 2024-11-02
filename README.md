@@ -7,7 +7,11 @@ A visual summary of this guide:
 flowchart
 	A[Start]
 	A-->Gitbash[Download Gitbash]
+<<<<<<< HEAD
 	Gitbash-->clone["git clone https ://github.com/Mr-Tome/cpp-template.git"]-->configure["./configure"]-->make["./make"] --> run["./run"]
+=======
+	Gitbash-->clone["git clone https ://github.com/Mr-Tome/cpp-config-ini.git"]-->configure["./configure"]-->make["./make"] --> run["./run"]
+>>>>>>> ae84cae6dd7b664d9b893a1bc35347309bb0b4ed
 subgraph "%USERPROFILE%/cpp-template"
   
 	CMake
