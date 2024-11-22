@@ -1,0 +1,17 @@
+[requires]
+# Add your dependencies here
+# Example:
+# boost/1.83.0
+# fmt/10.1.1
+
+[generators]
+CMakeDeps
+CMakeToolchain
+
+[options]
+# Add package-specific options here
+# Example:
+# boost:shared=True
+
+[layout]
+cmake_layout
