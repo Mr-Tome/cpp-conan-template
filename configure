@@ -1,5 +1,8 @@
 #!/bin/bash
 
+chmod +x scripts/constants.sh
+source scripts/constants.sh
+
 
 # Initialize a variable to track if 'clean' is found
 found_clean=false
@@ -16,19 +19,33 @@ done
 # Based on the result, perform actions
 if $found_clean; then
     echo "'clean' argument detected. Cleaning Development Dependencies."
-    rm -r "$HOME/.configuration-dependencies/differential-equations"
+    rm -r "$HOME/.configuration-dependencies/$PROJECT_NAME"
+	
+	# Clean up Conan cache if needed
+    if command -v conan &> /dev/null; then
+        echo "Cleaning Conan cache..."
+        conan cache clean
+    fi
+	
 	echo "Finished Cleaning Development Dependencies..."
 else
     echo "Configuring Development Dependencies..."
-	echo "Configuring to this path: $HOME/.configuration-dependencies/differential-equations"
+    echo "Configuring to this path: $HOME/.configuration-dependencies/$PROJECT_NAME"
+	
 	echo "Configuring CMake..."
 	chmod +x scripts/configure_cmake.sh
 	bash scripts/configure_cmake.sh
 	echo "Finished Configuring CMake"
+	
 	echo "Configuring GCC..."
 	chmod +x scripts/configure_gcc.sh
 	bash scripts/configure_gcc.sh
 	echo "Finished Configuring GCC"
+    
+    echo "Configuring Conan..."
+    chmod +x scripts/configure_conan.sh
+    bash scripts/configure_conan.sh
+    echo "Finished Configuring Conan"
 
 	echo "Finished Configuring Development Dependencies..."
 	echo ""

@@ -4,7 +4,6 @@ cmake_ver=3.29.3
 op_sys=windows-x86_64
 
 #let's check the final destination before we actually do anything
-destination="$HOME/.configuration-dependencies/differential-equations"
 destination_dep="$destination/cmake-$cmake_ver-$op_sys"
 
 if [ -d "$destination_dep" ]; then
