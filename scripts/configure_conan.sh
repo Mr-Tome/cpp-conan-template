@@ -15,9 +15,25 @@ else
     conan --version
 fi
 
-# Initialize Conan default profile
-echo "Setting up Conan default profile..."
-conan profile detect
+# Initialize Conan MinGW profile
+echo "Setting up a Conan MinGW profile..."
+cat > mingw_profile << EOL
+[settings]
+arch=x86_64
+build_type=Release
+compiler=gcc
+compiler.version=14.1
+compiler.libcxx=libstdc++11
+os=Windows
+
+[conf]
+tools.cmake.cmaketoolchain:generator=Ninja
+EOL
+
+
+echo "Setting mingw_profile as default..."
+conan profile detect --force
+cp mingw_profile ~/.conan2/profiles/default
 
 # Create conanfile.txt if it doesn't exist
 if [[ ! -f "conanfile.txt" ]]; then
