@@ -1,5 +1,8 @@
 #!/bin/bash
 
+chmod +x scripts/constants.sh
+source scripts/constants.sh
+
 
 # Initialize a variable to track if 'clean' is found
 found_clean=false
