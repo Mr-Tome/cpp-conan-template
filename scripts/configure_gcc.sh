@@ -1,5 +1,6 @@
 #!/bin/bash
 
+source scripts/constants.sh
 gcc_ver=14.1.0
 op_sys=windows-x86_64
 

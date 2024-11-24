@@ -26,7 +26,8 @@ else
 	touch run
 	chmod +x run
 	echo "#!/bin/bash" > run
-	echo "start build/differential-equations.exe" >> run
+	echo "source scripts/constants.sh" > run
+	echo "start build/$PROJECT_NAME.exe" >> run
 	
 	echo "Finished Making CPP project..."
 	echo ""

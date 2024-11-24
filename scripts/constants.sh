@@ -3,7 +3,6 @@
 export PROJECT_NAME="cpp-conan-template"
 export destination="$HOME/.configuration-dependencies/$PROJECT_NAME"
 
-
 # Set up colors for output
 export RED='\033[0;31m'
 export GREEN='\033[0;32m'

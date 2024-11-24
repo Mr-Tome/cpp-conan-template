@@ -3,10 +3,11 @@
 #include <vector>
 #include <string>
 #include <stdlib.h>
-#include "cpp/point.cpp"
-#include "cpp/math/complex.h"
 
-int main(){
+#include <fmt/core.h>
+
+int main() {
+    fmt::print("Hello from fmt {}!\n", fmt::format("v{}", FMT_VERSION));
 	std::string finishedAnswer;
 	while(true)
 	{
