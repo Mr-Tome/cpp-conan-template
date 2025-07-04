@@ -21,7 +21,11 @@ endif()
 find_package(fmt REQUIRED)
 
 # Add executable
-add_executable(${PROJECT_NAME} source/main.cpp)
+add_executable(${PROJECT_NAME} 
+	source/main.cpp
+)
 
 # Link libraries
-target_link_libraries(${PROJECT_NAME} PRIVATE fmt::fmt)
+target_link_libraries(${PROJECT_NAME}
+	 PRIVATE fmt::fmt
+)
