@@ -1,5 +1,11 @@
-cmake_minimum_required(VERSION 3.12)
-project(cpp-conan-template CXX)
+cmake_minimum_required(VERSION 3.21)
+
+# Project definition with artifact versions
+project(cpp-conan-template 
+    VERSION 1.0.0
+    DESCRIPTION "C++ project template with Conan 2.0"
+    LANGUAGES CXX
+)
 
 # Enable C++11
 set(CMAKE_CXX_STANDARD 11)
