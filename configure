@@ -1,5 +1,6 @@
 #!/bin/bash
 
+set -e  # Exit on any error
 chmod +x scripts/constants.sh
 source scripts/constants.sh
 
