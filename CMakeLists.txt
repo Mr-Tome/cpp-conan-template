@@ -6,9 +6,8 @@ project(cpp-conan-template
     DESCRIPTION "C++ project template with Conan 2.0"
     LANGUAGES CXX
 )
-
-# Enable C++11
-set(CMAKE_CXX_STANDARD 11)
+# TODO: Test with 23 (and 26?)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
