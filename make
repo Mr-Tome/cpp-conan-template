@@ -7,14 +7,17 @@ source scripts/constants.sh
 # Initialize a variable to track if 'clean' is found
 found_clean=false
 
-# Loop through all arguments
-for arg in "$@"; do
-    # Check if the argument contains 'clean'
-    if [[ $arg == *"clean"* ]]; then
-        found_clean=true
-        break
-    fi
-done
+main() {
+	print_status "C++ Conan Template Build"
+	print_status "===================================="
+	# Loop through all arguments
+	for arg in "$@"; do
+    	# Check if the argument contains 'clean'
+    		if [[ $arg == *"clean"* ]]; then
+       			found_clean=true
+        		break
+    		fi
+	done
 
 if $found_clean; then
     echo "'clean' argument detected. Cleaning ./make files..."
@@ -34,3 +37,4 @@ else
 	echo "1) Now you may execute ./run"
 	echo "2) To remove these dependencies, run ./make clean"
 fi
+main "$@"
