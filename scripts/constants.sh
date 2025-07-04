@@ -1,6 +1,7 @@
 #!/bin/bash
 
 export PROJECT_NAME="cpp-conan-template"
+export PROJECT_VERSION="1.0.0"
 export destination="$HOME/.configuration-dependencies/$PROJECT_NAME"
 
 # Set up colors for output
