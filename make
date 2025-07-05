@@ -367,6 +367,16 @@ create_run_script() {
 
 # Auto-generated run script
 # Built with: profile=$profile, C++$cpp_std, $BUILD_TYPE mode
+
+# Load project configuration first
+if [ ! -f ".project" ]; then
+    echo "ERROR: .project file not found!"
+    echo "This file should be checked into your repository."
+    exit 1
+fi
+source .project
+
+# Load constants and utilities
 source scripts/constants.sh
 
 EXE_PATH="$exe_path"
