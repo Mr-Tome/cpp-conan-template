@@ -1,10 +1,10 @@
 #!/bin/bash
 
+source scripts/constants.sh
 gcc_ver=14.1.0
 op_sys=windows-x86_64
 
 #let's check the final destination before we actually do anything
-destination="$HOME/.configuration-dependencies/differential-equations"
 destination_dep="$destination/mingw64"
 
 if [ -d "$destination_dep" ]; then

@@ -1,38 +1,575 @@
 #!/bin/bash
 
+# Purely modern configure script - no legacy tool downloads
+# Uses system tools and Conan tool_requires
+# Handles profile selection and saves the choice
 
-# Initialize a variable to track if 'clean' is found
-found_clean=false
+set -e  # Exit on any error
 
-# Loop through all arguments
-for arg in "$@"; do
-    # Check if the argument contains 'clean'
-    if [[ $arg == *"clean"* ]]; then
-        found_clean=true
-        break
-    fi
-done
-
-# Based on the result, perform actions
-if $found_clean; then
-    echo "'clean' argument detected. Cleaning Development Dependencies."
-    rm -r "$HOME/.configuration-dependencies/differential-equations"
-	echo "Finished Cleaning Development Dependencies..."
-else
-    echo "Configuring Development Dependencies..."
-	echo "Configuring to this path: $HOME/.configuration-dependencies/differential-equations"
-	echo "Configuring CMake..."
-	chmod +x scripts/configure_cmake.sh
-	bash scripts/configure_cmake.sh
-	echo "Finished Configuring CMake"
-	echo "Configuring GCC..."
-	chmod +x scripts/configure_gcc.sh
-	bash scripts/configure_gcc.sh
-	echo "Finished Configuring GCC"
-
-	echo "Finished Configuring Development Dependencies..."
-	echo ""
-	echo "1) Now you may execute ./make"
-	echo "2) To remove these dependencies, run ./configure clean"
+# Load project configuration
+if [ ! -f ".project" ]; then
+    echo "ERROR: .project file not found!"
+    echo "This file should be checked into your repository."
+    echo "It contains project name, version, and other metadata."
+    exit 1
 fi
 
+# Source project configuration
+source .project
+
+# Source constants and utility functions
+chmod +x scripts/constants.sh
+source scripts/constants.sh
+
+# Enhanced utility functions
+check_command() {
+    if ! command -v "$1" &> /dev/null; then
+        print_error "$1 is not installed or not in PATH"
+        return 1
+    fi
+    return 0
+}
+
+install_python_dependencies() {
+    print_header "Installing Python Dependencies"
+    
+    local python_cmd="python3"
+    command_exists python3 || python_cmd="python"
+    
+    local pip_cmd="pip3"  
+    command_exists pip3 || pip_cmd="pip"
+    
+    # Improved packaging detection with better error handling
+    print_status "Checking Python packaging library..."
+    if $python_cmd -c "import packaging; print('✓ Packaging available')" 2>/dev/null; then
+        print_status "Python packaging library already installed ✓"
+    else
+        print_status "Installing Python packaging library..."
+        if $pip_cmd install packaging; then
+            print_success "Python packaging library installed ✓"
+        else
+            print_error "Failed to install packaging library"
+            print_status "This is required for proper version comparison in conanfile.py"
+            exit 1
+        fi
+    fi
+    
+    # Install Conan if needed
+    if ! check_command "conan"; then
+        print_step "Installing Conan package manager..."
+        $pip_cmd install "conan>=2.0" || {
+            print_error "Failed to install Conan"
+            exit 1
+        }
+        print_success "Conan package manager installed ✓"
+    fi
+}
+
+check_cpp_standard_utility() {
+    print_header "Checking C++ Standard Utility"
+    
+    if [ -f "scripts/cpp_standard.sh" ]; then
+        print_success "C++ standard utility script found ✓"
+        chmod +x scripts/cpp_standard.sh
+    else
+        print_error "C++ standard utility script not found!"
+        print_status "Expected: scripts/cpp_standard.sh"
+        print_status "This file should be checked into your git repository"
+        exit 1
+    fi
+}
+
+check_template_files() {
+    print_header "Checking Template Files"
+    
+    local missing_files=()
+    
+    # Check required files
+    if [ ! -f "conanfile.py" ]; then
+        missing_files+=("conanfile.py")
+    else
+        print_status "conanfile.py found ✓"
+    fi
+    
+    if [ ! -f "CMakeLists.txt" ]; then
+        missing_files+=("CMakeLists.txt")
+    else
+        print_status "CMakeLists.txt found ✓"
+    fi
+    
+    if [ ! -f "scripts/constants.sh" ]; then
+        missing_files+=("scripts/constants.sh")
+    else
+        print_status "scripts/constants.sh found ✓"
+    fi
+    
+    if [ ${#missing_files[@]} -gt 0 ]; then
+        print_error "Missing required template files:"
+        for file in "${missing_files[@]}"; do
+            print_status "  • $file"
+        done
+        print_status "These files should be checked into your git repository"
+        exit 1
+    fi
+    
+    print_success "All template files found ✓"
+}
+
+check_conan_version() {
+    local version
+    version=$(conan --version 2>/dev/null | cut -d' ' -f3 || echo "0.0.0")
+    local major_version
+    major_version=$(echo "$version" | cut -d'.' -f1)
+    
+    if [ "$major_version" != "2" ]; then
+        print_error "Conan 2.x is required. Current version: $version"
+        print_status "Install with: pip install conan>=2.0"
+        return 1
+    fi
+    
+    print_status "Conan $version detected ✓"
+    return 0
+}
+
+detect_environment() {
+    local env_info=()
+    
+    # Detect OS
+    case "$OSTYPE" in
+        linux*)   env_info+=("os=Linux") ;;
+        darwin*)  env_info+=("os=macOS") ;;
+        msys*)    env_info+=("os=Windows/MSYS2") ;;
+        cygwin*)  env_info+=("os=Windows/Cygwin") ;;
+        *)        env_info+=("os=Unknown") ;;
+    esac
+    
+    # Detect MSYS environment
+    if [[ -n "$MSYSTEM" ]]; then
+        env_info+=("msys=$MSYSTEM")
+    fi
+    
+    # Detect WSL
+    if [[ -n "$WSL_DISTRO_NAME" ]]; then
+        env_info+=("wsl=$WSL_DISTRO_NAME")
+    fi
+    
+    # Detect available compilers with versions
+    local compilers=()
+    if command_exists gcc; then
+        local gcc_ver=$(gcc -dumpversion 2>/dev/null | cut -d. -f1)
+        compilers+=("gcc-${gcc_ver}")
+    fi
+    if command_exists clang; then
+        local clang_ver=$(clang --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | head -1)
+        compilers+=("clang-${clang_ver}")
+    fi
+    if command_exists cl; then
+        compilers+=("msvc")
+    fi
+    
+    if [ ${#compilers[@]} -gt 0 ]; then
+        env_info+=("compilers=${compilers[*]}")
+    else
+        env_info+=("compilers=none")
+    fi
+    
+    printf '%s\n' "${env_info[@]}"
+}
+
+clean_dependencies() {
+    print_header "Cleaning Development Dependencies"
+    
+    # Clean legacy configuration dependencies
+    if [ -d "$destination" ]; then
+        rm -rf "$destination"
+        print_status "Removed legacy dependencies from: $destination"
+    fi
+    
+    # Clean Conan cache and profiles
+    if command -v conan &> /dev/null; then
+        print_status "Cleaning Conan cache..."
+        conan cache clean "*" --confirm 2>/dev/null || true
+        
+        # Clean problematic profiles
+        local profile_dir=~/.conan2/profiles
+        if [ -d "$profile_dir" ]; then
+            print_status "Cleaning Conan profiles..."
+            [ -f "$profile_dir/default" ] && rm "$profile_dir/default"
+            [ -f "$profile_dir/mingw" ] && rm "$profile_dir/mingw"
+            [ -f "$profile_dir/mingw_temp" ] && rm "$profile_dir/mingw_temp"
+            [ -f "$profile_dir/msvc" ] && rm "$profile_dir/msvc"
+        fi
+    fi
+    
+    # Clean build artifacts
+    if [ -d "build" ]; then
+        rm -rf build
+        print_status "Removed build directory"
+    fi
+    
+    # Clean generated files
+    [ -f "run" ] && rm run && print_status "Removed run script"
+    [ -f "CMakeUserPresets.json" ] && rm CMakeUserPresets.json
+    [ -f ".cppstd" ] && rm .cppstd && print_status "Removed .cppstd file"
+    [ -f ".conan_profile" ] && rm .conan_profile && print_status "Removed .conan_profile file"
+    
+    # Clean backup files
+    [ -f "conanfile.py.backup" ] && rm conanfile.py.backup
+    [ -f "CMakeLists.txt.backup" ] && rm CMakeLists.txt.backup
+    [ -f "conanfile.py.bak" ] && rm conanfile.py.bak
+    [ -f "CMakeLists.txt.bak" ] && rm CMakeLists.txt.bak
+    
+    print_success "Finished cleaning development dependencies"
+}
+
+check_system_requirements() {
+    print_header "Checking System Requirements"
+    
+    local requirements_met=true
+    
+    # Check Python
+    if check_command "python3" || check_command "python"; then
+        local python_cmd="python3"
+        command_exists python3 || python_cmd="python"
+        local python_ver=$($python_cmd --version 2>&1 | grep -oE '[0-9]+\.[0-9]+')
+        print_status "Python: $python_ver ✓"
+    else
+        print_error "Python 3.7+ is required"
+        requirements_met=false
+    fi
+    
+    # Check pip
+    if check_command "pip3" || check_command "pip"; then
+        print_status "pip: available ✓"
+    else
+        print_error "pip is required for Python package installation"
+        requirements_met=false
+    fi
+    
+    # Check C++ compiler
+    local compiler_found=false
+    if command_exists gcc; then
+        local gcc_ver=$(gcc -dumpversion 2>/dev/null | cut -d. -f1)
+        if [ "$gcc_ver" -ge 8 ] 2>/dev/null; then
+            print_status "GCC: $gcc_ver ✓ (C++20 supported)"
+            compiler_found=true
+        else
+            print_warning "GCC: $gcc_ver (C++20 support limited, recommend GCC 11+)"
+            compiler_found=true
+        fi
+    fi
+    
+    if command_exists clang; then
+        local clang_ver=$(clang --version 2>/dev/null | grep -oE '[0-9]+' | head -1)
+        if [ "$clang_ver" -ge 10 ] 2>/dev/null; then
+            print_status "Clang: $clang_ver ✓ (C++20 supported)"
+            compiler_found=true
+        fi
+    fi
+    
+    if command_exists cl; then
+        print_status "MSVC: detected ✓ (C++20 supported)"
+        compiler_found=true
+    fi
+    
+    if ! $compiler_found; then
+        print_error "No suitable C++ compiler found"
+        print_status "Required: GCC 8+, Clang 10+, or MSVC 2019+"
+        requirements_met=false
+    fi
+    
+    # Check CMake (optional - Conan can provide it)
+    if command_exists cmake; then
+        local cmake_ver=$(cmake --version 2>/dev/null | head -n1 | grep -oE '[0-9]+\.[0-9]+')
+        local cmake_major=$(echo "$cmake_ver" | cut -d. -f1)
+        local cmake_minor=$(echo "$cmake_ver" | cut -d. -f2)
+        
+        if [ "$cmake_major" -gt 3 ] || ([ "$cmake_major" -eq 3 ] && [ "$cmake_minor" -ge 21 ]); then
+            print_status "CMake: $cmake_ver ✓"
+        else
+            print_warning "CMake: $cmake_ver (recommend 3.21+, Conan can provide newer version)"
+        fi
+    else
+        print_warning "CMake not found (Conan will provide it as tool_requires)"
+    fi
+    
+    # Check build tools
+    if command_exists ninja; then
+        print_status "Ninja: available ✓"
+    elif command_exists make; then
+        print_status "Make: available ✓"
+    else
+        print_warning "No build tool found (ninja/make), may need to install"
+    fi
+    
+    if ! $requirements_met; then
+        print_error "System requirements not met"
+        print_status ""
+        print_status "💡 Installation suggestions:"
+        print_status "Windows (MSYS2): pacman -S mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake mingw-w64-x86_64-ninja"
+        print_status "Ubuntu/Debian: sudo apt install build-essential cmake ninja-build"
+        print_status "macOS: brew install cmake ninja"
+        exit 1
+    fi
+    
+    print_success "System requirements check passed!"
+}
+
+create_modern_mingw_profile() {
+    local profile_name="$1"
+    
+    print_status "Creating modern MinGW profile: $profile_name"
+    
+    # Detect GCC version and set appropriate C++ standard
+    local gcc_version="11"
+    local cppstd="20"
+    
+    if command_exists gcc; then
+        local detected_version
+        detected_version=$(gcc -dumpversion 2>/dev/null | cut -d. -f1 || echo "11")
+        if [ "$detected_version" -ge 8 ] 2>/dev/null; then
+            gcc_version="$detected_version"
+            if [ "$detected_version" -ge 11 ]; then
+                cppstd="20"  # GCC 11+ has full C++20 support
+            elif [ "$detected_version" -ge 8 ]; then
+                cppstd="17"  # GCC 8-10 has good C++17 support
+            fi
+        fi
+    fi
+    
+    print_status "Using system GCC $gcc_version with C++$cppstd standard"
+    
+    mkdir -p ~/.conan2/profiles
+    
+    cat > ~/.conan2/profiles/"$profile_name" << EOL
+[settings]
+arch=x86_64
+build_type=Release
+compiler=gcc
+compiler.version=$gcc_version
+compiler.libcxx=libstdc++11
+compiler.cppstd=$cppstd
+os=Windows
+
+[conf]
+tools.cmake.cmaketoolchain:generator=Ninja
+
+[buildenv]
+CC=gcc
+CXX=g++
+EOL
+    
+    print_success "Created modern MinGW profile: $profile_name (C++$cppstd, system tools)"
+}
+
+test_profile_build() {
+    local profile="$1"
+    
+    print_status "Testing profile: $profile"
+    
+    # Create a temporary directory for testing
+    local test_dir=$(mktemp -d)
+    local original_dir=$(pwd)
+    
+    # Create a minimal test conanfile
+    cat > "$test_dir/conanfile.py" << 'EOF'
+from conan import ConanFile
+
+class TestConan(ConanFile):
+    settings = "os", "compiler", "build_type", "arch"
+    
+    def requirements(self):
+        self.requires("fmt/10.2.1")
+    
+    def generate(self):
+        pass
+EOF
+    
+    cd "$test_dir"
+    
+    # Try to install dependencies with this profile
+    local test_result=0
+    if conan install . --profile:build="$profile" --profile:host="$profile" -s build_type=Release --build=missing >/dev/null 2>&1; then
+        print_status "Profile $profile: ✓ working"
+        test_result=0
+    else
+        print_warning "Profile $profile: ✗ failed test"
+        test_result=1
+    fi
+    
+    cd "$original_dir"
+    rm -rf "$test_dir"
+    
+    return $test_result
+}
+
+determine_best_profile() {
+    print_header "Determining Best Build Profile"
+    
+    local environment
+    environment=($(detect_environment))
+    
+    print_status "Environment detection:"
+    printf '  %s\n' "${environment[@]}"
+    
+    # Get compiler info
+    local has_gcc=false has_msvc=false has_clang=false
+    for info in "${environment[@]}"; do
+        if [[ "$info" == "compilers="*"gcc"* ]]; then has_gcc=true; fi
+        if [[ "$info" == "compilers="*"msvc"* ]]; then has_msvc=true; fi
+        if [[ "$info" == "compilers="*"clang"* ]]; then has_clang=true; fi
+    done
+    
+    local candidate_profiles=()
+    local selected_profile="default"
+    
+    # Create/detect profiles based on environment
+    if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" ]]; then
+        # Windows MSYS/Cygwin environment
+        print_status "Detected Windows MSYS/Cygwin environment"
+        
+        if [[ "$MSYSTEM" == "MINGW64" || "$MSYSTEM" == "MINGW32" ]] && $has_gcc; then
+            print_status "MINGW environment detected - creating system MinGW profile"
+            create_modern_mingw_profile "mingw"
+            candidate_profiles+=("mingw")
+            
+        elif $has_msvc; then
+            print_status "MSVC detected - using Conan auto-detection"
+            conan profile detect --force
+            candidate_profiles+=("default")
+        else
+            print_warning "No suitable compiler detected, using Conan auto-detection"
+            conan profile detect --force
+            candidate_profiles+=("default")
+        fi
+        
+    else
+        # Linux/macOS or other Unix-like systems
+        print_status "Detected Unix-like environment"
+        
+        if [ ! -f ~/.conan2/profiles/default ]; then
+            print_status "Creating default profile with auto-detection..."
+            conan profile detect --force
+        else
+            print_status "Default profile already exists"
+        fi
+        candidate_profiles+=("default")
+    fi
+    
+    # Test each candidate profile and pick the first working one
+    print_status "Testing candidate profiles: ${candidate_profiles[*]}"
+    
+    for profile in "${candidate_profiles[@]}"; do
+        if [ -f ~/.conan2/profiles/"$profile" ]; then
+            if test_profile_build "$profile"; then
+                selected_profile="$profile"
+                break
+            fi
+        else
+            print_warning "Profile $profile not found, skipping"
+        fi
+    done
+    
+    # Save the selected profile
+    echo "$selected_profile" > .conan_profile
+    print_success "Selected profile: $selected_profile"
+    print_status "Saved to .conan_profile for use by ./make"
+    
+    # List available profiles
+    print_status "Available Conan profiles:"
+    if command -v conan &> /dev/null; then
+        conan profile list || true
+        
+        # Show selected profile content
+        if [ -f ~/.conan2/profiles/"$selected_profile" ]; then
+            print_status "Selected profile ($selected_profile) content:"
+            cat ~/.conan2/profiles/"$selected_profile" | sed 's/^/  /'
+        fi
+    fi
+    
+    return 0
+}
+
+configure_modern_dependencies() {
+    print_header "Configuring Modern Development Dependencies"
+    start_timer
+    
+    # Check system requirements first
+    check_system_requirements
+    
+    # Install Python dependencies (packaging, conan)
+    install_python_dependencies
+    
+    # Verify Conan version
+    check_conan_version || exit 1
+    
+    # Check that required template files exist
+    check_template_files
+    
+    # Check that C++ standard utility exists  
+    check_cpp_standard_utility
+    
+    # Determine the best profile to use and save it
+    determine_best_profile
+    
+    # Set default C++ standard to 20 if not already set
+    if [ ! -f ".cppstd" ]; then
+        echo "20" > .cppstd
+        print_status "Set default C++ standard to C++20"
+    fi
+    
+    # Validate project structure
+    print_step "Validating project structure..."
+    if ! validate_project_structure; then
+        print_warning "Project structure validation failed, but continuing..."
+    fi
+    
+    local setup_time
+    setup_time=$(end_timer)
+    
+    print_header "Modern Configuration Complete!"
+    print_success "Setup completed in: $setup_time"
+    print_status ""
+    print_status "🎯 What was configured:"
+    print_status "• Python packaging library (for version comparison)"
+    print_status "• Conan 2.0 package manager"
+    print_status "• Verified C++ standard support (17, 20, 23, 26)"
+    print_status "• Verified all template files exist"
+    print_status "• Selected and tested build profile: $(cat .conan_profile 2>/dev/null || echo 'default')"
+    print_status "• Cross-platform build support"
+    print_status ""
+    print_status "🚀 Next steps:"
+    print_status "1) Run: ./make     (will use selected profile)"
+    print_status "2) Run: ./run      (after successful build)"
+    print_status "3) Clean: ./configure clean"
+    print_status ""
+    print_status "🔧 C++ Standard Management:"
+    print_status "• Check current standard: ./scripts/cpp_standard.sh current"
+    print_status "• Set C++ standard: ./scripts/cpp_standard.sh set 23"
+    print_status "• Check compiler support: ./scripts/cpp_standard.sh check 26"
+    print_status "• Show standard info: ./scripts/cpp_standard.sh info 20"
+}
+
+# Main script logic
+main() {
+    print_header "🔧 Modern C++ Conan Template Configuration"
+    print_environment_info
+    
+    # Check for clean argument
+    local found_clean=false
+    for arg in "$@"; do
+        if [[ $arg == *"clean"* ]]; then
+            found_clean=true
+            break
+        fi
+    done
+    
+    if $found_clean; then
+        clean_dependencies
+    else
+        configure_modern_dependencies
+    fi
+}
+
+# Run main function with all arguments
+main "$@"

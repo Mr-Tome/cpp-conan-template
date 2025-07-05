@@ -1,16 +1,15 @@
 #!/bin/bash
 
-cmake_ver=3.29.3
+source scripts/constants.sh
 op_sys=windows-x86_64
-
+cmake_ver=3.29.3
 #let's check the final destination before we actually do anything
-destination="$HOME/.configuration-dependencies/differential-equations"
-destination_dep="$destination/cmake-$cmake_ver-$op_sys"
+export cmake_path="$destination/cmake-$cmake_ver-$op_sys"
 
-if [ -d "$destination_dep" ]; then
+if [ -d "$cmake_path" ]; then
 	echo "CMake $cmake_ver-$op_sys already exists."
 	echo "Testing the download."
-	"$destination_dep"/bin/cmake.exe --version
+	"$cmake_path"/bin/cmake.exe --version
 else
 	echo "Downloading CMake v$cmake_ver"
 	# Define the URL of the CMake installer
@@ -39,7 +38,7 @@ else
 	
 	#Testing the download
 	echo "Testing the download."
-	"$destination_dep"/bin/cmake.exe --version
+	"$cmake_path"/bin/cmake.exe --version
 fi
 
 
