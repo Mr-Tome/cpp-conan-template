@@ -6,3 +6,6 @@ build/
 
 # Ignore a specific file
 run
+.conan_profile
+.cppstd
+CMakeUserPresets.json

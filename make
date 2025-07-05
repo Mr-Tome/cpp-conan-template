@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Robust make script with intelligent fallback strategies
-# Tries multiple build configurations when one fails
+# Robust make script - uses predetermined profile, no fallback
+# Profile selection should be done by ./configure
 
 set -e  # Exit on any error
 
@@ -12,7 +12,6 @@ source scripts/constants.sh
 # Configuration
 BUILD_TYPE=${BUILD_TYPE:-Release}
 JOBS=${JOBS:-$(get_cpu_cores)}
-ATTEMPTED_PROFILES=()
 
 # Enhanced utility functions
 detect_platform() {
@@ -34,21 +33,27 @@ check_python_dependencies() {
     local pip_cmd="pip3"  
     command_exists pip3 || pip_cmd="pip"
     
-    # Check if packaging is installed
-    if ! $python_cmd -c "import packaging" 2>/dev/null; then
-        print_warning "Python packaging library not found"
-        print_status "Installing packaging library..."
+    # Improved packaging detection
+    print_status "Testing Python packaging library..."
+    if $python_cmd -c "import packaging; print('✓')" 2>/dev/null | grep -q "✓"; then
+        print_status "Python packaging library available ✓"
+    else
+        print_status "Python packaging library needs installation/upgrade..."
         
-        if $pip_cmd install packaging; then
-            print_success "Python packaging library installed ✓"
+        if $pip_cmd install --upgrade packaging >/dev/null 2>&1; then
+            # Test again after installation
+            if $python_cmd -c "import packaging; print('✓')" 2>/dev/null | grep -q "✓"; then
+                print_success "Python packaging library installed ✓"
+            else
+                print_warning "Packaging installed but not accessible - this may be normal"
+                print_status "Continuing with build..."
+            fi
         else
             print_error "Failed to install packaging library"
             print_status "This is required for conanfile.py version comparison"
             print_status "Please run: ./configure"
             exit 1
         fi
-    else
-        print_status "Python packaging library available ✓"
     fi
 }
 
@@ -101,15 +106,8 @@ check_template_files() {
             print_status "Enhanced conanfile.py detected ✓"
         else
             print_warning "Legacy conanfile.py detected"
-            print_status "Updating to enhanced version..."
-            
-            # Run configure to update files
-            if [ -f "./configure" ]; then
-                ./configure
-            else
-                print_error "Configure script not found"
-                exit 1
-            fi
+            print_status "Please run: ./configure to update template files"
+            exit 1
         fi
     else
         print_error "No conanfile.py found. Please run ./configure first"
@@ -122,7 +120,8 @@ check_template_files() {
             print_status "Enhanced CMakeLists.txt detected ✓"
         else
             print_warning "Legacy CMakeLists.txt detected"
-            print_status "Enhanced version will be used automatically"
+            print_status "Please run: ./configure to update template files"
+            exit 1
         fi
     else
         print_error "No CMakeLists.txt found"
@@ -191,108 +190,46 @@ clean_build() {
     print_status "✅ Build cleanup completed"
 }
 
-# Get available Conan profiles
-get_available_profiles() {
-    local profiles=()
+# Determine which profile to use (no fallback logic)
+get_build_profile() {
+    local profile="default"
     
-    # Check for default profile
-    if [ -f ~/.conan2/profiles/default ]; then
-        profiles+=("default")
-    fi
-    
-    # Check for mingw profile
-    if [ -f ~/.conan2/profiles/mingw ]; then
-        profiles+=("mingw")
-    fi
-    
-    # List all profiles in the profiles directory
-    if [ -d ~/.conan2/profiles ]; then
-        for profile in ~/.conan2/profiles/*; do
-            if [ -f "$profile" ]; then
-                local profile_name=$(basename "$profile")
-                if [[ "$profile_name" != "default" && "$profile_name" != "mingw" ]]; then
-                    profiles+=("$profile_name")
-                fi
-            fi
-        done
-    fi
-    
-    echo "${profiles[@]}"
-}
-
-# Try to build with a specific profile
-run_cmake_configure() {
-    local build_folder="$1"
-    local toolchain_file="$2"
-    local cpp_std="$3"
-    local generator="$4"
-    
-    print_debug "Trying CMake configuration with generator: ${generator:-default}"
-    
-    # Prepare CMake arguments
-    local cmake_args=(
-        -B "$build_folder"
-        -DCMAKE_TOOLCHAIN_FILE="build/$toolchain_file"
-        -DCMAKE_BUILD_TYPE="$BUILD_TYPE"
-        -DCMAKE_CXX_STANDARD="$cpp_std"
-        -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-    )
-    
-    # Add generator if specified
-    if [[ -n "$generator" ]]; then
-        cmake_args=(-G "$generator" "${cmake_args[@]}")
-    fi
-    
-    # Add source directory
-    cmake_args=("${cmake_args[@]}" .)
-    
-    # Run CMake and capture both output and exit code
-    print_debug "Running: cmake ${cmake_args[*]}"
-    
-    # Create a temporary file to capture stderr
-    local cmake_output=$(mktemp)
-    local cmake_stderr=$(mktemp)
-    
-    # Run cmake and capture exit code
-    if cmake "${cmake_args[@]}" > "$cmake_output" 2> "$cmake_stderr"; then
-        local exit_code=0
+    # Check if there's a saved profile preference
+    if [ -f ".conan_profile" ]; then
+        profile=$(cat .conan_profile)
+        print_status "Using saved profile: $profile" >&2
     else
-        local exit_code=$?
+        # Use environment-based logic (simplified)
+        local platform=$(detect_platform)
+        
+        if [ "$platform" = "windows" ] && [[ "$MSYSTEM" == "MINGW64" || "$MSYSTEM" == "MINGW32" ]]; then
+            if [ -f ~/.conan2/profiles/mingw ]; then
+                profile="mingw"
+                print_status "Auto-selected MinGW profile for MINGW environment" >&2
+            fi
+        fi
+        
+        print_status "Using profile: $profile" >&2
     fi
     
-    # Show output if there's useful information
-    if [ -s "$cmake_output" ]; then
-        print_debug "CMake output:"
-        cat "$cmake_output" | sed 's/^/  /'
+    # Verify the profile exists
+    if [ ! -f ~/.conan2/profiles/"$profile" ]; then
+        print_error "Conan profile '$profile' not found!" >&2
+        print_status "Available profiles:" >&2
+        conan profile list 2>/dev/null || print_status "  (run 'conan profile list' to see available profiles)" >&2
+        print_status "" >&2
+        print_status "Please run: ./configure" >&2
+        exit 1
     fi
     
-    # Show errors if there are any
-    if [ -s "$cmake_stderr" ]; then
-        print_debug "CMake errors:"
-        cat "$cmake_stderr" | sed 's/^/  /'
-    fi
-    
-    # Cleanup temp files
-    rm -f "$cmake_output" "$cmake_stderr"
-    
-    return $exit_code
+    echo "$profile"
 }
 
-try_build_with_profile() {
+# Build with the determined profile (no fallback)
+build_with_profile() {
     local profile="$1"
-    local build_attempt="$2"
     
-    print_step "Attempt $build_attempt: Trying profile '$profile'"
-    
-    # Skip if already attempted
-    for attempted in "${ATTEMPTED_PROFILES[@]}"; do
-        if [ "$attempted" = "$profile" ]; then
-            print_warning "Profile '$profile' already attempted, skipping"
-            return 1
-        fi
-    done
-    
-    ATTEMPTED_PROFILES+=("$profile")
+    print_header "Building with profile: $profile"
     
     # Create build directory
     mkdir -p build
@@ -312,11 +249,16 @@ try_build_with_profile() {
         "-c" "tools.build:jobs=$JOBS"
     )
     
-    # Try Conan install
+    # Install dependencies
     if ! conan install "${conan_args[@]}"; then
-        print_warning "Conan install failed with profile: $profile"
+        print_error "Conan install failed with profile: $profile"
+        print_status ""
+        print_status "💡 Troubleshooting:"
+        print_status "1. Check profile: conan profile show $profile"
+        print_status "2. Try: ./configure clean && ./configure"
+        print_status "3. Check compiler installation"
         cd ..
-        return 1
+        exit 1
     fi
     
     # Find the generated toolchain file
@@ -326,9 +268,9 @@ try_build_with_profile() {
     elif [ -f "$BUILD_TYPE/generators/conan_toolchain.cmake" ]; then
         toolchain_file="$BUILD_TYPE/generators/conan_toolchain.cmake"
     else
-        print_warning "Could not find conan_toolchain.cmake for profile: $profile"
+        print_error "Could not find conan_toolchain.cmake"
         cd ..
-        return 1
+        exit 1
     fi
     
     cd ..
@@ -341,144 +283,44 @@ try_build_with_profile() {
         build_folder="build/$BUILD_TYPE"
     fi
     
-    # Try different CMake configurations based on profile
-    local cmake_success=false
+    # Configure CMake
+    local cmake_args=(
+        -B "$build_folder"
+        -DCMAKE_TOOLCHAIN_FILE="build/$toolchain_file"
+        -DCMAKE_BUILD_TYPE="$BUILD_TYPE"
+        -DCMAKE_CXX_STANDARD="$cpp_std"
+        -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+        .
+    )
     
-    # Strategy 1: Use detected generator from Conan (usually Ninja)
-    if ! $cmake_success; then
-        if run_cmake_configure "$build_folder" "$toolchain_file" "$cpp_std" ""; then
-            cmake_success=true
-            print_debug "CMake configuration successful with default generator"
-        fi
+    if ! cmake "${cmake_args[@]}"; then
+        print_error "CMake configuration failed"
+        print_status ""
+        print_status "💡 Troubleshooting:"
+        print_status "1. Check that your compiler supports C++$cpp_std"
+        print_status "2. Try a different C++ standard: ./scripts/cpp_standard.sh set 17"
+        print_status "3. Check CMake and compiler installation"
+        exit 1
     fi
     
-    # Strategy 2: Force Ninja generator (for MinGW/GCC)
-    if ! $cmake_success && [[ "$profile" == *"mingw"* || "$profile" == *"gcc"* ]]; then
-        print_debug "Trying with forced Ninja generator..."
-        if run_cmake_configure "$build_folder" "$toolchain_file" "$cpp_std" "Ninja"; then
-            cmake_success=true
-            print_debug "CMake configuration successful with Ninja generator"
-        fi
-    fi
-    
-    # Strategy 3: Force Visual Studio generator (for MSVC)
-    if ! $cmake_success && [[ "$profile" == *"msvc"* ]]; then
-        print_debug "Trying with Visual Studio generator..."
-        if run_cmake_configure "$build_folder" "$toolchain_file" "$cpp_std" "Visual Studio 17 2022"; then
-            cmake_success=true
-            print_debug "CMake configuration successful with Visual Studio generator"
-        fi
-    fi
-    
-    # Strategy 4: Try Unix Makefiles as last resort
-    if ! $cmake_success; then
-        print_debug "Trying with Unix Makefiles generator..."
-        if run_cmake_configure "$build_folder" "$toolchain_file" "$cpp_std" "Unix Makefiles"; then
-            cmake_success=true
-            print_debug "CMake configuration successful with Unix Makefiles"
-        fi
-    fi
-    
-    if ! $cmake_success; then
-        print_warning "CMake configuration failed with profile: $profile"
-        print_status "Check the debug output above for specific errors"
-        return 1
-    fi
-    
-    print_success "CMake configuration successful with profile: $profile"
+    print_success "CMake configuration successful ✓"
     
     # Build the project
     print_status "🏗️  Building the project with profile: $profile (C++$cpp_std)..."
     if ! cmake --build "$build_folder" --config "$BUILD_TYPE" -j "$JOBS"; then
-        print_warning "Build failed with profile: $profile"
-        return 1
+        print_error "Build failed!"
+        print_status ""
+        print_status "💡 Common issues:"
+        print_status "1. Compilation errors: Check the error output above"
+        print_status "2. Missing dependencies: Run ./configure"
+        print_status "3. Compiler issues: Try different C++ standard"
+        exit 1
     fi
     
-    print_success "Build completed successfully with profile: $profile!"
+    print_success "Build completed successfully ✓"
     
     # Create run script
     create_run_script "$build_folder" "$profile" "$cpp_std"
-    return 0
-}
-
-build_with_fallback() {
-    print_header "Building with intelligent fallback strategy"
-    
-    local platform
-    platform=$(detect_platform)
-    
-    # Define build strategies based on platform and environment
-    local strategies=()
-    
-    if [ "$platform" = "windows" ]; then
-        # Windows strategies
-        if [[ "$MSYSTEM" == "MINGW64" || "$MSYSTEM" == "MINGW32" ]]; then
-            # We're in MINGW environment - prefer MinGW builds
-            strategies+=("mingw")
-            strategies+=("default")     # Try default as fallback
-        else
-            # Regular Windows environment - prefer MSVC
-            strategies+=("default")
-            strategies+=("mingw")
-        fi
-    else
-        # Linux/macOS strategies
-        strategies+=("default")
-        
-        # Add any custom profiles
-        local available_profiles
-        available_profiles=($(get_available_profiles))
-        for prof in "${available_profiles[@]}"; do
-            if [[ "$prof" != "default" ]]; then
-                strategies+=("$prof")
-            fi
-        done
-    fi
-    
-    print_status "Platform: $platform"
-    print_status "Environment: ${MSYSTEM:-system}"
-    print_status "Build strategies: ${strategies[*]}"
-    
-    # Show current C++ standard
-    show_cpp_standard_info
-    
-    local attempt=1
-    local success=false
-    
-    for strategy in "${strategies[@]}"; do
-        print_status ""
-        print_status "🎯 Trying build strategy $attempt/${#strategies[@]}: $strategy"
-        
-        if try_build_with_profile "$strategy" "$attempt"; then
-            success=true
-            break
-        else
-            print_warning "Strategy $attempt failed, trying next approach..."
-            # Clean partial build artifacts
-            [ -d "build" ] && rm -rf build
-        fi
-        
-        ((attempt++))
-    done
-    
-    if ! $success; then
-        print_error "All build strategies failed!"
-        print_status ""
-        print_status "💡 Troubleshooting suggestions:"
-        print_status "1. Check C++ standard compatibility:"
-        print_status "   ./scripts/cpp_standard.sh check $(get_current_cpp_standard)"
-        print_status "2. Try a different C++ standard:"
-        print_status "   ./scripts/cpp_standard.sh set 17"
-        print_status "3. Check that required compilers are installed:"
-        print_status "   - For MinGW: gcc, g++, ninja"
-        print_status "   - For MSVC: Visual Studio 2019/2022"
-        print_status "4. Try running: ./configure clean && ./configure"
-        print_status "5. Check Conan profiles: conan profile list"
-        print_status "6. Enable debug output: DEBUG=1 ./make"
-        print_status ""
-        print_status "Attempted profiles: ${ATTEMPTED_PROFILES[*]}"
-        exit 1
-    fi
 }
 
 create_run_script() {
@@ -587,8 +429,15 @@ main() {
     
     start_timer
     
-    # Build with enhanced fallback strategies
-    build_with_fallback
+    # Show current C++ standard
+    show_cpp_standard_info
+    
+    # Get the profile to use (no fallback logic)
+    local profile
+    profile=$(get_build_profile)
+    
+    # Build with the determined profile
+    build_with_profile "$profile"
     
     local build_time
     build_time=$(end_timer)
@@ -599,7 +448,7 @@ main() {
     print_status "✅ Successfully built with:"
     print_status "   • C++$(get_current_cpp_standard) standard"
     print_status "   • $BUILD_TYPE configuration"
-    print_status "   • Profile: ${ATTEMPTED_PROFILES[-1]}"
+    print_status "   • Profile: $profile"
     print_status ""
     print_status "Next steps:"
     print_status "1) Run: ./run"

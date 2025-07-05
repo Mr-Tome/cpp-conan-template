@@ -2,6 +2,7 @@
 
 # Purely modern configure script - no legacy tool downloads
 # Uses system tools and Conan tool_requires
+# Handles profile selection and saves the choice
 
 set -e  # Exit on any error
 
@@ -27,11 +28,12 @@ install_python_dependencies() {
     local pip_cmd="pip3"  
     command_exists pip3 || pip_cmd="pip"
     
-    # Check if packaging is already installed
-    if $python_cmd -c "import packaging" 2>/dev/null; then
+    # Improved packaging detection with better error handling
+    print_status "Checking Python packaging library..."
+    if $python_cmd -c "import packaging; print('✓ Packaging available')" 2>/dev/null; then
         print_status "Python packaging library already installed ✓"
     else
-        print_step "Installing Python packaging library..."
+        print_status "Installing Python packaging library..."
         if $pip_cmd install packaging; then
             print_success "Python packaging library installed ✓"
         else
@@ -198,6 +200,7 @@ clean_dependencies() {
     [ -f "run" ] && rm run && print_status "Removed run script"
     [ -f "CMakeUserPresets.json" ] && rm CMakeUserPresets.json
     [ -f ".cppstd" ] && rm .cppstd && print_status "Removed .cppstd file"
+    [ -f ".conan_profile" ] && rm .conan_profile && print_status "Removed .conan_profile file"
     
     # Clean backup files
     [ -f "conanfile.py.backup" ] && rm conanfile.py.backup
@@ -348,8 +351,49 @@ EOL
     print_success "Created modern MinGW profile: $profile_name (C++$cppstd, system tools)"
 }
 
-setup_modern_conan_profiles() {
-    print_header "Setting Up Modern Conan Profiles"
+test_profile_build() {
+    local profile="$1"
+    
+    print_status "Testing profile: $profile"
+    
+    # Create a temporary directory for testing
+    local test_dir=$(mktemp -d)
+    local original_dir=$(pwd)
+    
+    # Create a minimal test conanfile
+    cat > "$test_dir/conanfile.py" << 'EOF'
+from conan import ConanFile
+
+class TestConan(ConanFile):
+    settings = "os", "compiler", "build_type", "arch"
+    
+    def requirements(self):
+        self.requires("fmt/10.2.1")
+    
+    def generate(self):
+        pass
+EOF
+    
+    cd "$test_dir"
+    
+    # Try to install dependencies with this profile
+    local test_result=0
+    if conan install . --profile:build="$profile" --profile:host="$profile" -s build_type=Release --build=missing >/dev/null 2>&1; then
+        print_status "Profile $profile: ✓ working"
+        test_result=0
+    else
+        print_warning "Profile $profile: ✗ failed test"
+        test_result=1
+    fi
+    
+    cd "$original_dir"
+    rm -rf "$test_dir"
+    
+    return $test_result
+}
+
+determine_best_profile() {
+    print_header "Determining Best Build Profile"
     
     local environment
     environment=($(detect_environment))
@@ -365,7 +409,10 @@ setup_modern_conan_profiles() {
         if [[ "$info" == "compilers="*"clang"* ]]; then has_clang=true; fi
     done
     
-    # Modern approach: use system tools, no downloads
+    local candidate_profiles=()
+    local selected_profile="default"
+    
+    # Create/detect profiles based on environment
     if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" ]]; then
         # Windows MSYS/Cygwin environment
         print_status "Detected Windows MSYS/Cygwin environment"
@@ -373,15 +420,16 @@ setup_modern_conan_profiles() {
         if [[ "$MSYSTEM" == "MINGW64" || "$MSYSTEM" == "MINGW32" ]] && $has_gcc; then
             print_status "MINGW environment detected - creating system MinGW profile"
             create_modern_mingw_profile "mingw"
-            cp ~/.conan2/profiles/mingw ~/.conan2/profiles/default
-            print_status "Set MinGW as default profile (using system tools)"
+            candidate_profiles+=("mingw")
             
         elif $has_msvc; then
             print_status "MSVC detected - using Conan auto-detection"
             conan profile detect --force
+            candidate_profiles+=("default")
         else
             print_warning "No suitable compiler detected, using Conan auto-detection"
             conan profile detect --force
+            candidate_profiles+=("default")
         fi
         
     else
@@ -394,19 +442,41 @@ setup_modern_conan_profiles() {
         else
             print_status "Default profile already exists"
         fi
+        candidate_profiles+=("default")
     fi
     
-    # List created profiles
+    # Test each candidate profile and pick the first working one
+    print_status "Testing candidate profiles: ${candidate_profiles[*]}"
+    
+    for profile in "${candidate_profiles[@]}"; do
+        if [ -f ~/.conan2/profiles/"$profile" ]; then
+            if test_profile_build "$profile"; then
+                selected_profile="$profile"
+                break
+            fi
+        else
+            print_warning "Profile $profile not found, skipping"
+        fi
+    done
+    
+    # Save the selected profile
+    echo "$selected_profile" > .conan_profile
+    print_success "Selected profile: $selected_profile"
+    print_status "Saved to .conan_profile for use by ./make"
+    
+    # List available profiles
     print_status "Available Conan profiles:"
     if command -v conan &> /dev/null; then
         conan profile list || true
         
-        # Show default profile content
-        if [ -f ~/.conan2/profiles/default ]; then
-            print_status "Default profile content:"
-            cat ~/.conan2/profiles/default | sed 's/^/  /'
+        # Show selected profile content
+        if [ -f ~/.conan2/profiles/"$selected_profile" ]; then
+            print_status "Selected profile ($selected_profile) content:"
+            cat ~/.conan2/profiles/"$selected_profile" | sed 's/^/  /'
         fi
     fi
+    
+    return 0
 }
 
 configure_modern_dependencies() {
@@ -428,8 +498,8 @@ configure_modern_dependencies() {
     # Check that C++ standard utility exists  
     check_cpp_standard_utility
     
-    # Setup modern Conan profiles (no legacy tool downloads)
-    setup_modern_conan_profiles
+    # Determine the best profile to use and save it
+    determine_best_profile
     
     # Set default C++ standard to 20 if not already set
     if [ ! -f ".cppstd" ]; then
@@ -452,13 +522,13 @@ configure_modern_dependencies() {
     print_status "🎯 What was configured:"
     print_status "• Python packaging library (for version comparison)"
     print_status "• Conan 2.0 package manager"
-    print_status "• C++ standard support (17, 20, 23, 26)"
-    print_status "• C++ standard utility script (./scripts/cpp_standard.sh)"
-    print_status "• Modern compiler profiles with C++20"
+    print_status "• Verified C++ standard support (17, 20, 23, 26)"
+    print_status "• Verified all template files exist"
+    print_status "• Selected and tested build profile: $(cat .conan_profile 2>/dev/null || echo 'default')"
     print_status "• Cross-platform build support"
     print_status ""
     print_status "🚀 Next steps:"
-    print_status "1) Run: ./make     (modern build with fallback)"
+    print_status "1) Run: ./make     (will use selected profile)"
     print_status "2) Run: ./run      (after successful build)"
     print_status "3) Clean: ./configure clean"
     print_status ""
