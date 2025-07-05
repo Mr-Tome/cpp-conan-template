@@ -69,7 +69,6 @@ int App::run() {
         
         if (answer.empty()) {
             fmt::print("⚠️  Please provide an answer.\n\n");
-            continue;
         }
         
         if (is_affirmative(answer)) {

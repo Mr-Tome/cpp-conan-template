@@ -1,8 +1,9 @@
 # Ignore all files of a certain type
 #*.log
 
-# Ignore the build directory
+# Ignore directories
 build/
+.vscode/
 
 # Ignore a specific file
 run
