@@ -2,15 +2,54 @@
 
 # Modern constants and utility functions for cpp-conan-template
 # Enhanced with better error handling and cross-platform support
+# Uses .project file for configuration
 
-# Project configuration
-export PROJECT_NAME="cpp-conan-template"
-export PROJECT_VERSION="1.0.0"
+# Validate that project configuration is loaded
+if [ -z "$PROJECT_NAME" ]; then
+    echo "ERROR: PROJECT_NAME not defined. .project file should be sourced first."
+    exit 1
+fi
+
+if [ -z "$PROJECT_VERSION" ]; then
+    echo "ERROR: PROJECT_VERSION not defined. .project file should be sourced first."
+    exit 1
+fi
+
+# Export project configuration for use by other scripts
+export PROJECT_NAME
+export PROJECT_VERSION
+export PROJECT_DESCRIPTION
+export PROJECT_URL
+export PROJECT_LICENSE
+
+# Derived configuration
 export destination="$HOME/.configuration-dependencies/$PROJECT_NAME"
 
-# Build configuration
-export DEFAULT_BUILD_TYPE="Release"
-export DEFAULT_CXX_STANDARD="20"
+# Build configuration (use defaults from .project if not set in environment)
+export DEFAULT_BUILD_TYPE="${DEFAULT_BUILD_TYPE:-Release}"
+
+# C++ standard management - single source of truth is .cppstd file
+get_current_cpp_standard() {
+    local std="20"  # Default fallback
+    
+    # Check .cppstd file first (managed by cpp_standard.sh)
+    if [ -f ".cppstd" ]; then
+        std=$(cat .cppstd)
+    fi
+    
+    # Validate the standard
+    case "$std" in
+        17|20|23|26)
+            echo "$std"
+            ;;
+        *)
+            echo "20"  # Safe fallback
+            ;;
+    esac
+}
+
+# Export current C++ standard for use by other scripts
+export CURRENT_CXX_STANDARD=$(get_current_cpp_standard)
 
 # Color definitions for enhanced output
 export RED='\033[0;31m'
@@ -124,6 +163,11 @@ validate_project_structure() {
         ((errors++))
     fi
     
+    if [[ ! -f ".project" ]]; then
+        print_error ".project configuration file not found"
+        ((errors++))
+    fi
+    
     # Check for source directory
     if [[ ! -d "src" && ! -f "main.cpp" && ! -f "source/main.cpp" ]]; then
         print_warning "No standard source directory found (src/, main.cpp, or source/main.cpp)"
@@ -178,11 +222,12 @@ get_git_branch() {
 print_environment_info() {
     print_header "Environment Information"
     print_status "Project: $PROJECT_NAME v$PROJECT_VERSION"
+    print_status "Description: $PROJECT_DESCRIPTION"
     print_status "OS: $(get_os_type)"
     print_status "CPU cores: $(get_cpu_cores)"
     print_status "Git branch: $(get_git_branch)"
     print_status "Build type: ${BUILD_TYPE:-$DEFAULT_BUILD_TYPE}"
-    print_status "C++ standard: ${CXX_STANDARD:-$DEFAULT_CXX_STANDARD}"
+    print_status "C++ standard: $(get_current_cpp_standard)"
     
     if command_exists conan; then
         local conan_version
