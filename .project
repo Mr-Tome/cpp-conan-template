@@ -1,0 +1,15 @@
+# Project Configuration - Single Source of Truth
+# This file contains all project metadata used by build scripts
+
+PROJECT_NAME="cpp-conan-template"
+PROJECT_VERSION="1.0.0"
+PROJECT_DESCRIPTION="Modern C++ project template with Conan 2.0"
+PROJECT_URL="https://github.com/yourusername/cpp-conan-template"
+PROJECT_LICENSE="MIT"
+
+# Build configuration defaults
+DEFAULT_BUILD_TYPE="Release"
+
+# Repository information (update these when forking)
+GITHUB_USER="yourusername"
+GITHUB_REPO="cpp-conan-template"

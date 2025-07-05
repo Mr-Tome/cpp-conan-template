@@ -6,6 +6,17 @@
 
 set -e  # Exit on any error
 
+# Load project configuration
+if [ ! -f ".project" ]; then
+    echo "ERROR: .project file not found!"
+    echo "This file should be checked into your repository."
+    echo "It contains project name, version, and other metadata."
+    exit 1
+fi
+
+# Source project configuration
+source .project
+
 # Source constants and utility functions
 chmod +x scripts/constants.sh
 source scripts/constants.sh

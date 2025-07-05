@@ -5,6 +5,17 @@
 
 set -e  # Exit on any error
 
+# Load project configuration
+if [ ! -f ".project" ]; then
+    echo "ERROR: .project file not found!"
+    echo "This file should be checked into your repository."
+    echo "It contains project name, version, and other metadata."
+    exit 1
+fi
+
+# Source project configuration
+source .project
+
 # Source constants and utility functions
 chmod +x scripts/constants.sh
 source scripts/constants.sh
@@ -33,7 +44,7 @@ check_python_dependencies() {
     local pip_cmd="pip3"  
     command_exists pip3 || pip_cmd="pip"
     
-    # Improved packaging detection
+    # Test packaging library with better error handling
     print_status "Testing Python packaging library..."
     if $python_cmd -c "import packaging; print('✓')" 2>/dev/null | grep -q "✓"; then
         print_status "Python packaging library available ✓"
